@@ -9,13 +9,18 @@ from datetime import datetime
 # Page setup
 st.set_page_config(page_title="Cardiovascular Study Assistant", layout="wide")
 
+# Paths
+docs_path = "data/docs"
+persist_path = "vectorstore"
+
 # Sidebar for file upload
 with st.sidebar:
     st.header("📄 Upload Study Documents")
-    docs_path = "data/docs"
-    persist_path = "vectorstore"
-    uploaded_files = st.file_uploader("Upload PDF, DOCX, or TXT", type=["pdf", "docx", "txt"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader(
+        "Upload PDF, DOCX, or TXT", type=["pdf", "docx", "txt"], accept_multiple_files=True
+    )
     if uploaded_files:
+        os.makedirs(docs_path, exist_ok=True)
         for file in uploaded_files:
             file_path = os.path.join(docs_path, file.name)
             with open(file_path, "wb") as f:
@@ -24,17 +29,20 @@ with st.sidebar:
 
 # Load or build vectorstore
 if not os.path.exists(f"{persist_path}/index.faiss"):
-    with st.spinner("Indexing documents..."):
+    with st.spinner("🔍 Indexing documents..."):
         docs = load_documents(docs_path)
         vectorstore = build_vectorstore(docs, persist_path)
 else:
     vectorstore = load_vectorstore(persist_path)
 
+# Build QA chain
 qa_chain = build_chain(vectorstore)
 
-# Initialize chat history
+# Initialize session state
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+if "last_query" not in st.session_state:
+    st.session_state.last_query = ""
 
 # Custom CSS
 st.markdown("""
@@ -77,6 +85,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# Main header
 st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
 st.markdown("## 🧠 Cardiovascular Study Assistant")
 
@@ -107,20 +116,16 @@ st.markdown("<div class='input-bar'>", unsafe_allow_html=True)
 query = st.text_input("Ask a question...", key="query_input", label_visibility="collapsed")
 st.markdown("</div>", unsafe_allow_html=True)
 
-# Handle query after input field
-if query and "last_query" not in st.session_state:
+# Handle query
+if query and query != st.session_state.last_query:
     with st.spinner("🤔 Thinking..."):
         response = qa_chain.invoke(query)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     st.session_state.chat_history.append({
         "question": query,
-        "answer": response["result"],
+        "answer": response.get("result", "No response generated."),
         "timestamp": timestamp
     })
-    st.session_state.last_query = query  # Prevent reprocessing on rerun
-
-# Reset last_query to allow new input
-if "last_query" in st.session_state and st.session_state.query_input != st.session_state.last_query:
-    del st.session_state.last_query
+    st.session_state.last_query = query
 
 st.markdown("</div>", unsafe_allow_html=True)
