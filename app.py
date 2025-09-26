@@ -189,8 +189,10 @@ def initialize_ai_agent():
         
     except Exception as e:
         error_msg = str(e)
-        if "api_key" in error_msg.lower() or "openai" in error_msg.lower():
-            return None, "🔑 OpenAI API key required. Please add OPENAI_API_KEY to your .env file."
+        if ("api_key" in error_msg.lower() 
+            or "openai" in error_msg.lower() 
+            or "openai_api_key" in error_msg.lower()):
+            return None, "🔑 OpenAI API key required. Please add OPENAI_API_KEY to your environment or .env file."
         else:
             return None, f"❌ Error initializing AI agent: {error_msg}"
 
@@ -201,7 +203,7 @@ if not qa_chain:
     st.error(status_message)
     
     # Helpful setup instructions
-    if "API key" in status_message:
+    if "OPENAI_API_KEY" in status_message or "API key" in status_message:
         with st.expander("🔧 Setup Instructions", expanded=True):
             st.markdown("""
             ### Quick Setup Guide:
@@ -210,10 +212,20 @@ if not qa_chain:
                - Visit [OpenAI Platform](https://platform.openai.com/api-keys)
                - Create account/login → API Keys → Create new secret key
             
-            2. **Configure .env file:**
-               ```env
-               OPENAI_API_KEY=sk-your_actual_key_here
-               ```
+            2. **Configure environment:**
+               - **Option A (.env file):**
+                 ```env
+                 OPENAI_API_KEY=sk-your_actual_key_here
+                 ```
+               - **Option B (system env var):**
+                 - **Windows (Powershell):**
+                   ```powershell
+                   setx OPENAI_API_KEY "sk-your_actual_key_here"
+                   ```
+                 - **macOS/Linux (bash/zsh):**
+                   ```bash
+                   export OPENAI_API_KEY="sk-your_actual_key_here"
+                   ```
             
             3. **Restart the application**
             
