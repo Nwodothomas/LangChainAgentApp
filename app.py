@@ -19,17 +19,18 @@ st.set_page_config(
 docs_path = "data/docs"
 persist_path = "vectorstore"
 
-# Initialize session state
+# Initialize session state properly
 if "chat_sessions" not in st.session_state:
-    st.session_state.chat_sessions = {
-        "current": {
-            "id": "default",
-            "history": [],
-            "title": "New Chat"
-        }
+    st.session_state.chat_sessions = {}
+    # Create initial session
+    initial_session_id = "default"
+    st.session_state.chat_sessions[initial_session_id] = {
+        "id": initial_session_id,
+        "history": [],
+        "title": "New Chat"
     }
-if "current_session_id" not in st.session_state:
-    st.session_state.current_session_id = "default"
+    st.session_state.current_session_id = initial_session_id
+
 if "processed_query" not in st.session_state:
     st.session_state.processed_query = ""
 if "show_new_chat" not in st.session_state:
@@ -256,6 +257,27 @@ st.markdown("""
             background: rgba(0,0,0,0.5);
             z-index: 1999;
         }
+        
+        /* Welcome message styling */
+        .welcome-container {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+        
+        .capability-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        
+        .capability-item {
+            background: #f0f8ff;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -269,10 +291,27 @@ def create_new_chat_session():
     }
     st.session_state.current_session_id = session_id
     st.session_state.show_new_chat = False
+    st.session_state.processed_query = ""  # Reset processed query
 
 def get_current_session():
-    """Get current chat session"""
-    return st.session_state.chat_sessions[st.session_state.current_session_id]
+    """Get current chat session with error handling"""
+    current_id = st.session_state.current_session_id
+    if current_id not in st.session_state.chat_sessions:
+        # Fallback to first available session
+        if st.session_state.chat_sessions:
+            first_id = list(st.session_state.chat_sessions.keys())[0]
+            st.session_state.current_session_id = first_id
+            return st.session_state.chat_sessions[first_id]
+        else:
+            # Create default session if none exists
+            st.session_state.chat_sessions["default"] = {
+                "id": "default",
+                "history": [],
+                "title": "New Chat"
+            }
+            st.session_state.current_session_id = "default"
+            return st.session_state.chat_sessions["default"]
+    return st.session_state.chat_sessions[current_id]
 
 def simulate_streaming_response(text, speed=0.02):
     """Simulate streaming response character by character"""
@@ -318,11 +357,19 @@ with st.sidebar:
     
     # Chat History
     st.markdown("### 💬 Chat History")
-    for session_id, session in st.session_state.chat_sessions.items():
-        is_active = session_id == st.session_state.current_session_id
-        emoji = "🔵" if is_active else "⚪"
-        if st.button(f"{emoji} {session['title']}", key=f"chat_{session_id}"):
-            st.session_state.current_session_id = session_id
+    
+    # Safely display chat history
+    if st.session_state.chat_sessions:
+        for session_id, session in list(st.session_state.chat_sessions.items()):
+            is_active = session_id == st.session_state.current_session_id
+            emoji = "🔵" if is_active else "⚪"
+            if st.button(f"{emoji} {session.get('title', 'Untitled Chat')}", 
+                        key=f"chat_{session_id}", 
+                        use_container_width=True):
+                st.session_state.current_session_id = session_id
+                st.rerun()
+    else:
+        st.info("No chat history available")
     
     st.markdown("---")
     
@@ -381,24 +428,22 @@ except Exception as e:
     qa_chain = None
 
 # Chat display area with scroll
-current_session = get_current_session()
+current_session = get_current_session()  # This now has proper error handling
 st.markdown('<div class="chat-container">', unsafe_allow_html=True)
 
 if not current_session["history"]:
     st.markdown("""
-        <div style="text-align: center; padding: 40px; color: #6c757d;">
+        <div class="welcome-container">
             <h3>👋 Welcome to MedAnalytica Pro!</h3>
             <p>Your advanced AI partner for cardiovascular health analysis.</p>
             <p><strong>Advanced analysis capabilities:</strong></p>
-            <div style="text-align: left; display: inline-block; max-width: 600px;">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                    <div style="background: #f0f8ff; padding: 10px; border-radius: 5px;">🔍 Risk Assessment</div>
-                    <div style="background: #f0f8ff; padding: 10px; border-radius: 5px;">🧬 Genetic Analysis</div>
-                    <div style="background: #f0f8ff; padding: 10px; border-radius: 5px;">📊 Anomaly Detection</div>
-                    <div style="background: #f0f8ff; padding: 10px; border-radius: 5px;">🎯 Root Cause Analysis</div>
-                    <div style="background: #f0f8ff; padding: 10px; border-radius: 5px;">💊 Treatment Plans</div>
-                    <div style="background: #f0f8ff; padding: 10px; border-radius: 5px;">🛡️ Prevention Strategies</div>
-                </div>
+            <div class="capability-grid">
+                <div class="capability-item">🔍 Risk Assessment</div>
+                <div class="capability-item">🧬 Genetic Analysis</div>
+                <div class="capability-item">📊 Anomaly Detection</div>
+                <div class="capability-item">🎯 Root Cause Analysis</div>
+                <div class="capability-item">💊 Treatment Plans</div>
+                <div class="capability-item">🛡️ Prevention Strategies</div>
             </div>
             <p style="margin-top: 20px;"><strong>Example medical queries:</strong></p>
             <ul style="text-align: left; display: inline-block;">
@@ -469,7 +514,7 @@ st.markdown('</div>', unsafe_allow_html=True)  # Close main-container
 
 # New Chat Modal
 if st.session_state.show_new_chat:
-    st.markdown('<div class="modal-overlay">', unsafe_allow_html=True)
+    st.markdown('<div class="modal-overlay" onclick="window.location.reload()">', unsafe_allow_html=True)
     st.markdown("""
         <div class="new-chat-modal">
             <h3>🆕 Start New Chat</h3>
@@ -479,11 +524,13 @@ if st.session_state.show_new_chat:
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("✅ Confirm", use_container_width=True):
+        if st.button("✅ Confirm", use_container_width=True, key="confirm_new_chat"):
             create_new_chat_session()
+            st.rerun()
     with col2:
-        if st.button("❌ Cancel", use_container_width=True):
+        if st.button("❌ Cancel", use_container_width=True, key="cancel_new_chat"):
             st.session_state.show_new_chat = False
+            st.rerun()
     
     st.markdown('</div></div>', unsafe_allow_html=True)
 
