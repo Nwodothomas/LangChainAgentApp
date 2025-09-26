@@ -8,7 +8,6 @@ from agent.vectorstore import load_vectorstore, build_vectorstore
 from agent.chain import build_chain
 from agent.utils import format_timestamp, validate_medical_query
 
-
 # ---------- Page ----------
 st.set_page_config(
     page_title="MedAnalytica Pro - Cardiovascular AI Assistant",
@@ -114,14 +113,18 @@ with st.sidebar:
 
 # ---------- Center wrap + header ----------
 render_html('<div class="center-wrap"><div class="main-wrap">')
+
+# NEW: banner constrained to center width via .header-card
 render_html("""
 <div class="header-section">
-  <h1>MedAnalytica Pro</h1>
-  <p>Advanced Cardiovascular AI Assistant • Risk Assessment • Diagnosis • Prevention</p>
+  <div class="header-card">
+    <h1>MedAnalytica Pro</h1>
+    <p>Advanced Cardiovascular AI Assistant • Risk Assessment • Diagnosis • Prevention</p>
+  </div>
 </div>
 """)
 
-# ---------- Initialize QA chain ----------
+# ---------- Init QA chain ----------
 @st.cache_resource(show_spinner=False)
 def initialize_ai_agent():
     try:
@@ -155,7 +158,6 @@ except KeyError:
     st.session_state.chat_sessions = {}; st.session_state.current_session_id = "default"
     create_new_session("default","New Chat"); current_session = get_current_session()
 
-# (CHANGED) no welcome grid here anymore; keep center clean
 if not current_session["history"]:
     render_html('<div style="text-align:center; color:#98a2b3; padding:24px;">Start a conversation using the input below.</div>')
 else:
@@ -189,77 +191,83 @@ if st.session_state.processing:
       <span class="thinking-dots"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></span>
     </div>""")
 
-render_html("</div></div>")  # close chat-container + chat-viewport
-render_html("</div></div>")  # close main-wrap + center-wrap
+render_html("</div></div>")   # close chat-container + chat-viewport
+render_html("</div></div>")   # close main-wrap + center-wrap
 
-# ---------- Right sidebar (now includes Capabilities) ----------
-docs_count = count_uploaded_docs()
-sess = get_current_session()
-render_html(f"""
-<aside class="right-pane">
-  <div class="rp-section">
-    <div class="rp-title">Capabilities</div>
-    <div class="rp-card">
-      <div class="rp-cap-grid">
-        <div class="rp-cap-item">🔍 Risk Assessment</div>
-        <div class="rp-cap-item">🧬 Genetic Analysis</div>
-        <div class="rp-cap-item">📊 Anomaly Detection</div>
-        <div class="rp-cap-item">🎯 Root Cause Analysis</div>
-        <div class="rp-cap-item">💊 Treatment Plans</div>
-        <div class="rp-cap-item">🛡️ Prevention Strategies</div>
+# ---------- Right sidebar (capabilities + info) ----------
+def right_sidebar():
+    docs_count = count_uploaded_docs()
+    sess = get_current_session()
+    render_html(f"""
+    <aside class="right-pane">
+      <div class="rp-section">
+        <div class="rp-title">Capabilities</div>
+        <div class="rp-card">
+          <div class="rp-cap-grid">
+            <div class="rp-cap-item">🔍 Risk Assessment</div>
+            <div class="rp-cap-item">🧬 Genetic Analysis</div>
+            <div class="rp-cap-item">📊 Anomaly Detection</div>
+            <div class="rp-cap-item">🎯 Root Cause Analysis</div>
+            <div class="rp-cap-item">💊 Treatment Plans</div>
+            <div class="rp-cap-item">🛡️ Prevention Strategies</div>
+          </div>
+        </div>
       </div>
-    </div>
-  </div>
 
-  <div class="rp-section">
-    <div class="rp-title">Example queries</div>
-    <div class="rp-card">
-      <ul class="rp-list">
-        <li>Analyze cardiovascular risk factors for a 55-year-old male with hypertension</li>
-        <li>What biomarkers are most predictive of heart disease?</li>
-        <li>Compare treatment options for atrial fibrillation</li>
-        <li>Explain the role of cholesterol in cardiovascular health</li>
-      </ul>
-    </div>
-  </div>
+      <div class="rp-section">
+        <div class="rp-title">Example queries</div>
+        <div class="rp-card">
+          <ul class="rp-list">
+            <li>Analyze cardiovascular risk factors for a 55-year-old male with hypertension</li>
+            <li>What biomarkers are most predictive of heart disease?</li>
+            <li>Compare treatment options for atrial fibrillation</li>
+            <li>Explain the role of cholesterol in cardiovascular health</li>
+          </ul>
+        </div>
+      </div>
 
-  <div class="rp-section">
-    <div class="rp-title">Quick actions</div>
-    <div class="rp-card">
-      <span class="rp-chip">Summarize latest doc</span>
-      <span class="rp-chip">List key biomarkers</span>
-      <span class="rp-chip">Risk factors overview</span>
-      <span class="rp-chip">AFib treatment compare</span>
-    </div>
-  </div>
+      <div class="rp-section">
+        <div class="rp-title">Quick actions</div>
+        <div class="rp-card">
+          <span class="rp-chip">Summarize latest doc</span>
+          <span class="rp-chip">List key biomarkers</span>
+          <span class="rp-chip">Risk factors overview</span>
+          <span class="rp-chip">AFib treatment compare</span>
+        </div>
+      </div>
 
-  <div class="rp-section">
-    <div class="rp-title">Documents</div>
-    <div class="rp-card"><strong>{docs_count}</strong> uploaded (PDF/DOCX/TXT)</div>
-  </div>
+      <div class="rp-section">
+        <div class="rp-title">Documents</div>
+        <div class="rp-card"><strong>{docs_count}</strong> uploaded (PDF/DOCX/TXT)</div>
+      </div>
 
-  <div class="rp-section">
-    <div class="rp-title">Session</div>
-    <div class="rp-card">
-      <div><strong>Title:</strong> {sess['title']}</div>
-      <div><strong>Created:</strong> {sess['created_at']}</div>
-      <div><strong>Messages:</strong> {len(sess['history'])}</div>
-    </div>
-  </div>
-</aside>
-""")
+      <div class="rp-section">
+        <div class="rp-title">Session</div>
+        <div class="rp-card">
+          <div><strong>Title:</strong> {sess['title']}</div>
+          <div><strong>Created:</strong> {sess['created_at']}</div>
+          <div><strong>Messages:</strong> {len(sess['history'])}</div>
+        </div>
+      </div>
+    </aside>
+    """)
 
-# ---------- Input (fixed bottom) ----------
+right_sidebar()
+
+# ---------- Input (fixed; never overlaps right pane) ----------
 render_html('<div class="input-section"><div class="input-container">')
 col1, col2, col3 = st.columns([1,8,1])
 with col1:
     if st.button("🆕", help="Start New Chat", key="new_chat_icon"):
         st.session_state.show_new_chat_modal = True
 with col2:
-    query = st.text_input("Ask a medical question...", key="query_input",
-                          label_visibility="collapsed",
-                          placeholder="e.g., Analyze cardiovascular risk factors for a 55-year-old male with hypertension...",
-                          disabled=st.session_state.processing)
+    query = st.text_input(
+        "Ask a medical question...",
+        key="query_input",
+        label_visibility="collapsed",
+        placeholder="e.g., Analyze cardiovascular risk factors for a 55-year-old male with hypertension...",
+        disabled=st.session_state.processing,
+    )
 with col3:
     submit_btn = st.button("📤", help="Send Message", key="send_btn", disabled=st.session_state.processing)
 render_html("</div></div>")
