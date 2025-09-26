@@ -37,17 +37,17 @@ def load_css():
         with open("static/styles.css", "r") as f:
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
     except FileNotFoundError:
-        # Minimal fallback so UI isn't broken if stylesheet is missing
+        # Minimal fallback
         st.markdown(
             dedent(
                 """
                 <style>
-                  .main-container { max-width: 1000px; margin: 0 auto; }
-                  .chat-container { padding: 20px; margin-bottom: 120px; }
-                  .user-message { background: #e3f2fd; padding: 10px; border-radius: 10px; margin: 5px 0; }
-                  .assistant-message { background: #f5f5f5; padding: 10px; border-radius: 10px; margin: 5px 0; }
-                  .input-section { position: fixed; bottom: 0; left:0; right:0; background: white; padding: 15px; border-top: 1px solid #e0e0e0; box-shadow: 0 -2px 20px rgba(0,0,0,0.1); z-index: 1000; }
-                  .input-container { max-width: 1000px; margin: 0 auto; display: flex; gap: 10px; align-items: center; }
+                  [data-testid="stAppViewContainer"] .main { overflow: hidden; }
+                  .header-section { position: sticky; top:0; background:#667eea; color:#fff; padding:20px; text-align:center; }
+                  .chat-viewport { height: calc(100vh - 200px); overflow:hidden; }
+                  .chat-container { height: 100%; overflow-y:auto; padding:20px; }
+                  .input-section { position: fixed; bottom:0; left:0; right:0; background:#fff; border-top:1px solid #e0e0e0; }
+                  .input-container { max-width:1000px; margin:0 auto; padding:10px; display:flex; gap:10px; align-items:center; }
                 </style>
                 """
             ),
@@ -101,7 +101,6 @@ def create_new_session(session_id=None, title="New Chat"):
 def get_current_session():
     current_id = st.session_state.current_session_id
     if current_id not in st.session_state.chat_sessions:
-        # Create the session if it doesn't exist
         create_new_session(current_id, "New Chat")
     return st.session_state.chat_sessions[current_id]
 
@@ -122,7 +121,7 @@ def add_message_to_current_session(role, content):
 
 
 # -----------------------------
-# Sidebar
+# Sidebar (unchanged behavior)
 # -----------------------------
 with st.sidebar:
     render_html(
@@ -134,11 +133,9 @@ with st.sidebar:
         """
     )
 
-    # New Chat Button
     if st.button("🔄 New Chat", use_container_width=True, key="new_chat_btn"):
         st.session_state.show_new_chat_modal = True
 
-    # Chat History
     st.markdown("### 📝 Chat History")
 
     if st.session_state.chat_sessions:
@@ -149,7 +146,6 @@ with st.sidebar:
             emoji = "🔵" if is_active else "⚪"
             btn_label = f"{emoji} {session['title']}"
 
-            # Wrap a button in a styled container
             render_html(f'<div class="{base_cls}{active_cls}">')
             if st.button(btn_label, key=f"session_{session_id}", use_container_width=True):
                 if switch_session(session_id):
@@ -157,12 +153,10 @@ with st.sidebar:
             render_html("</div>")
     else:
         st.info("No chat history yet")
-        # Ensure at least one session exists
         create_new_session("default", "New Chat")
 
     st.markdown("---")
 
-    # Document Management
     with st.expander("📁 Document Management", expanded=True):
         render_html(
             """
@@ -198,8 +192,11 @@ with st.sidebar:
 
 
 # -----------------------------
-# Header
+# Main wrapper (center column)
 # -----------------------------
+render_html('<div class="main-wrap">')
+
+# Header (sticky)
 render_html(
     """
     <div class="header-section">
@@ -215,7 +212,6 @@ render_html(
 @st.cache_resource(show_spinner=False)
 def initialize_ai_agent():
     try:
-        # Check if documents exist
         doc_files = [
             f for f in os.listdir(docs_path) if f.endswith((".pdf", ".docx", ".txt"))
         ]
@@ -226,7 +222,6 @@ def initialize_ai_agent():
                 "📁 No medical documents found. Please upload PDF, DOCX, or TXT files in the sidebar.",
             )
 
-        # Initialize vectorstore
         if not os.path.exists(f"{persist_path}/index.faiss"):
             with st.spinner("🔍 Indexing medical documents... This may take a few moments."):
                 docs = load_documents(docs_path)
@@ -240,7 +235,6 @@ def initialize_ai_agent():
         else:
             vectorstore = load_vectorstore(persist_path)
 
-        # Initialize QA chain
         qa_chain = build_chain(vectorstore)
         return qa_chain, "✅ Cardiovascular AI agent ready!"
 
@@ -258,13 +252,8 @@ def initialize_ai_agent():
 
 qa_chain, status_message = initialize_ai_agent()
 
-# -----------------------------
-# Status / Setup help
-# -----------------------------
 if not qa_chain:
     st.error(status_message)
-
-    # Helpful setup instructions
     if "OPENAI_API_KEY" in status_message or "API key" in status_message:
         with st.expander("🔧 Setup Instructions", expanded=True):
             st.markdown(
@@ -292,34 +281,27 @@ if not qa_chain:
                            ```
 
                     3. **Restart the application**
-
-                    **Note:** LangSmith is optional and not required for core functionality.
                     """
                 )
             )
-
     if "No documents" in status_message or "readable content" in status_message:
         st.info("💡 Please upload medical documents in the sidebar to get started.")
 
 # -----------------------------
-# Chat container (wrapper)
+# Chat viewport (only this scrolls)
 # -----------------------------
-render_html('<div class="chat-container">')
+render_html('<div class="chat-viewport"><div class="chat-container">')
 
-# -----------------------------
-# Chat history (empty state vs messages)
-# -----------------------------
+# Chat content
 try:
     current_session = get_current_session()
 except KeyError:
-    # Emergency fallback - recreate sessions
     st.session_state.chat_sessions = {}
     st.session_state.current_session_id = "default"
     create_new_session("default", "New Chat")
     current_session = get_current_session()
 
 if not current_session["history"]:
-    # Welcome state (uses classes defined in CSS)
     render_html(
         """
         <div class="welcome-container">
@@ -393,10 +375,11 @@ if st.session_state.processing:
         """
     )
 
-render_html("</div>")  # Close chat-container
+render_html("</div></div>")  # Close chat-container & chat-viewport
+render_html("</div>")         # Close .main-wrap
 
 # -----------------------------
-# Fixed input section
+# Input (fixed bottom)
 # -----------------------------
 render_html(
     """
@@ -436,7 +419,7 @@ render_html(
 )
 
 # -----------------------------
-# New Chat Modal
+# Modal
 # -----------------------------
 if st.session_state.show_new_chat_modal:
     render_html(
@@ -462,8 +445,7 @@ if st.session_state.show_new_chat_modal:
             st.session_state.show_new_chat_modal = False
             st.rerun()
 
-    render_html("</div></div></div>")  # Close modal
-
+    render_html("</div></div></div>")
 
 # -----------------------------
 # Handle query processing
@@ -474,14 +456,10 @@ if submit_btn and query and query != st.session_state.last_query:
     elif not validate_medical_query(query):
         st.warning("⚠️ Please ask a medically relevant question about cardiovascular health.")
     else:
-        # Set processing state
         st.session_state.processing = True
         st.session_state.last_query = query
-
-        # Add user message immediately
         add_message_to_current_session("user", query)
 
-        # Process the query
         try:
             with st.spinner("🤔 Analyzing with medical AI..."):
                 response = qa_chain.invoke(query)
@@ -489,26 +467,14 @@ if submit_btn and query and query != st.session_state.last_query:
                     "result",
                     "I couldn't generate a response based on the available medical documents.",
                 )
-
-                # Add assistant response
                 add_message_to_current_session("assistant", answer)
-
-                # Update session title if first exchange
-                if len(current_session["history"]) == 2:  # User + Assistant
+                if len(get_current_session()["history"]) == 2:
                     words = query.split()[:3]
-                    current_session["title"] = " ".join(words) + (
+                    get_current_session()["title"] = " ".join(words) + (
                         "..." if len(query.split()) > 3 else ""
                     )
-
         except Exception as e:
-            error_msg = f"❌ Error processing your query: {str(e)}"
-            add_message_to_current_session("assistant", error_msg)
-
+            add_message_to_current_session("assistant", f"❌ Error: {str(e)}")
         finally:
             st.session_state.processing = False
             st.rerun()
-
-# -----------------------------
-# Bottom padding so content doesn't hide behind input bar
-# -----------------------------
-render_html("<div style='height: 100px;'></div>")
