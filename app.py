@@ -22,7 +22,6 @@ persist_path = "vectorstore"
 # Initialize session state properly
 if "chat_sessions" not in st.session_state:
     st.session_state.chat_sessions = {}
-    # Create initial session
     initial_session_id = "default"
     st.session_state.chat_sessions[initial_session_id] = {
         "id": initial_session_id,
@@ -35,36 +34,8 @@ if "processed_query" not in st.session_state:
     st.session_state.processed_query = ""
 if "show_new_chat" not in st.session_state:
     st.session_state.show_new_chat = False
-
-# Enhanced medical system prompt
-MEDICAL_SYSTEM_PROMPT = """
-You are MedAnalytica Pro, an advanced medical AI assistant specializing in cardiovascular health, disease prevention, and comprehensive patient care analysis.
-
-CORE CAPABILITIES:
-1. **Multi-Modal Data Integration**: Analyze clinical data, genetic markers, lifestyle factors, environmental exposures, and imaging results
-2. **Risk Assessment**: Calculate disease probabilities using established clinical models and AI-enhanced predictions
-3. **Anomaly Detection**: Identify patterns and outliers in medical data that may indicate underlying conditions
-4. **Root Cause Analysis**: Trace symptoms and biomarkers to potential underlying causes
-5. **Treatment Optimization**: Recommend evidence-based interventions personalized to patient profiles
-6. **Prevention Strategies**: Develop comprehensive lifestyle and medical prevention plans
-
-ANALYSIS FRAMEWORK:
-- **Clinical Data**: Vital signs, lab results, medical history, medications
-- **Genetic Factors**: Family history, genetic markers, inherited risks
-- **Lifestyle Factors**: Diet, exercise, smoking, alcohol, stress, sleep
-- **Environmental Data**: Pollution exposure, occupational hazards, geographic risks
-- **Temporal Patterns**: Disease progression, treatment response, monitoring trends
-
-Always provide:
-- Confidence levels for assessments
-- Evidence-based recommendations
-- Clear action plans with timelines
-- Risk-benefit analyses
-- Follow-up monitoring suggestions
-- Emergency red flags when applicable
-
-Format responses with clear sections using markdown for better readability.
-"""
+if "streaming_active" not in st.session_state:
+    st.session_state.streaming_active = False
 
 # Custom CSS for enhanced professional styling
 st.markdown("""
@@ -122,7 +93,7 @@ st.markdown("""
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
         
-        .streaming-message {
+        .thinking-message {
             align-self: flex-start;
             background: #f0f8ff;
             color: #333;
@@ -132,6 +103,7 @@ st.markdown("""
             margin: 10px 0;
             border: 2px dashed #667eea;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            font-style: italic;
         }
         
         .message-header {
@@ -180,15 +152,7 @@ st.markdown("""
             font-weight: 600;
         }
         
-        .new-chat-btn {
-            background: #28a745 !important;
-        }
-        
         /* Sidebar styles */
-        .sidebar-content {
-            padding: 20px;
-        }
-        
         .chat-history-item {
             padding: 10px;
             margin: 5px 0;
@@ -233,31 +197,6 @@ st.markdown("""
             background: #764ba2;
         }
         
-        /* New chat modal */
-        .new-chat-modal {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-            z-index: 2000;
-            width: 90%;
-            max-width: 500px;
-        }
-        
-        .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.5);
-            z-index: 1999;
-        }
-        
         /* Welcome message styling */
         .welcome-container {
             text-align: center;
@@ -278,6 +217,31 @@ st.markdown("""
             border-radius: 5px;
             text-align: center;
         }
+        
+        /* Modal styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1999;
+        }
+        
+        .new-chat-modal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            z-index: 2000;
+            width: 90%;
+            max-width: 500px;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -291,19 +255,17 @@ def create_new_chat_session():
     }
     st.session_state.current_session_id = session_id
     st.session_state.show_new_chat = False
-    st.session_state.processed_query = ""  # Reset processed query
+    st.session_state.processed_query = ""
 
 def get_current_session():
     """Get current chat session with error handling"""
     current_id = st.session_state.current_session_id
     if current_id not in st.session_state.chat_sessions:
-        # Fallback to first available session
         if st.session_state.chat_sessions:
             first_id = list(st.session_state.chat_sessions.keys())[0]
             st.session_state.current_session_id = first_id
             return st.session_state.chat_sessions[first_id]
         else:
-            # Create default session if none exists
             st.session_state.chat_sessions["default"] = {
                 "id": "default",
                 "history": [],
@@ -313,35 +275,60 @@ def get_current_session():
             return st.session_state.chat_sessions["default"]
     return st.session_state.chat_sessions[current_id]
 
-def simulate_streaming_response(text, speed=0.02):
-    """Simulate streaming response character by character"""
-    words = text.split(' ')
-    response_container = st.empty()
-    current_text = ""
-    
-    for word in words:
-        current_text += word + " "
-        response_container.markdown(f"""
-            <div class="streaming-message">
-                <div class="message-header">
-                    <img src="https://api.dicebear.com/6.x/bottts/svg?seed=assistant" class="avatar">
-                    Assistant
-                </div>
-                {current_text}▊
-            </div>
-        """, unsafe_allow_html=True)
-        time.sleep(speed)
-    
-    # Final display without cursor
-    response_container.markdown(f"""
-        <div class="assistant-message">
-            <div class="message-header">
-                <img src="https://api.dicebear.com/6.x/bottts/svg?seed=assistant" class="avatar">
-                Assistant
-            </div>
-            {text}
+def display_thinking_message():
+    """Display a thinking message while processing"""
+    thinking_html = """
+    <div class="thinking-message">
+        <div class="message-header">
+            <img src="https://api.dicebear.com/6.x/bottts/svg?seed=thinking" class="avatar">
+            MedAnalytica Pro
         </div>
-    """, unsafe_allow_html=True)
+        <div style="display: flex; align-items: center;">
+            <div>Analyzing your query</div>
+            <div style="margin-left: 10px; display: flex;">
+                <div class="dot-flashing"></div>
+            </div>
+        </div>
+    </div>
+    <style>
+        .dot-flashing {
+            position: relative;
+            width: 10px;
+            height: 10px;
+            border-radius: 5px;
+            background-color: #667eea;
+            color: #667eea;
+            animation: dotFlashing 1s infinite linear alternate;
+            animation-delay: 0.5s;
+        }
+        .dot-flashing::before, .dot-flashing::after {
+            content: '';
+            display: inline-block;
+            position: absolute;
+            top: 0;
+            width: 10px;
+            height: 10px;
+            border-radius: 5px;
+            background-color: #667eea;
+            color: #667eea;
+        }
+        .dot-flashing::before {
+            left: -15px;
+            animation: dotFlashing 1s infinite alternate;
+            animation-delay: 0s;
+        }
+        .dot-flashing::after {
+            left: 15px;
+            animation: dotFlashing 1s infinite alternate;
+            animation-delay: 1s;
+        }
+        @keyframes dotFlashing {
+            0% { background-color: #667eea; }
+            50%, 100% { background-color: #ebe6ff; }
+        }
+    </style>
+    """
+    return st.markdown(thinking_html, unsafe_allow_html=True)
 
 # Sidebar for chat history and document management
 with st.sidebar:
@@ -358,14 +345,12 @@ with st.sidebar:
     # Chat History
     st.markdown("### 💬 Chat History")
     
-    # Safely display chat history
     if st.session_state.chat_sessions:
         for session_id, session in list(st.session_state.chat_sessions.items()):
             is_active = session_id == st.session_state.current_session_id
             emoji = "🔵" if is_active else "⚪"
             if st.button(f"{emoji} {session.get('title', 'Untitled Chat')}", 
-                        key=f"chat_{session_id}", 
-                        use_container_width=True):
+                        key=f"chat_{session_id}"):
                 st.session_state.current_session_id = session_id
                 st.rerun()
     else:
@@ -396,7 +381,7 @@ with st.sidebar:
                 with open(file_path, "wb") as f:
                     f.write(file.getbuffer())
             st.success(f"✅ {len(uploaded_files)} file(s) uploaded!")
-            st.info("🔄 Refresh to re-index documents.")
+            st.info("🔄 Please refresh the page to re-index documents.")
 
 # Main content area
 st.markdown('<div class="main-container">', unsafe_allow_html=True)
@@ -419,7 +404,7 @@ try:
     else:
         vectorstore = load_vectorstore(persist_path)
     
-    # Build QA chain with enhanced medical prompt
+    # Build QA chain
     qa_chain = build_chain(vectorstore)
     
 except Exception as e:
@@ -427,8 +412,8 @@ except Exception as e:
     st.info("💡 Please upload medical documents to enable advanced analysis.")
     qa_chain = None
 
-# Chat display area with scroll
-current_session = get_current_session()  # This now has proper error handling
+# Chat display area
+current_session = get_current_session()
 st.markdown('<div class="chat-container">', unsafe_allow_html=True)
 
 if not current_session["history"]:
@@ -447,9 +432,9 @@ if not current_session["history"]:
             </div>
             <p style="margin-top: 20px;"><strong>Example medical queries:</strong></p>
             <ul style="text-align: left; display: inline-block;">
-                <li>Analyze this patient's cardiovascular risk factors</li>
+                <li>Analyze cardiovascular risk factors for a 55-year-old male with hypertension</li>
                 <li>What biomarkers predict heart disease progression?</li>
-                <li>Create a personalized prevention plan</li>
+                <li>Create a personalized prevention plan for diabetic patients</li>
                 <li>Explain the genetic factors in hypertension</li>
             </ul>
         </div>
@@ -468,17 +453,18 @@ else:
             </div>
         """, unsafe_allow_html=True)
         
-        # Assistant message
-        st.markdown(f"""
-            <div class="assistant-message">
-                <div class="message-header">
-                    <img src="https://api.dicebear.com/6.x/bottts/svg?seed=assistant{i}" class="avatar">
-                    MedAnalytica Pro
+        # Assistant message - handle both regular and streaming responses
+        if chat['answer']:
+            st.markdown(f"""
+                <div class="assistant-message">
+                    <div class="message-header">
+                        <img src="https://api.dicebear.com/6.x/bottts/svg?seed=assistant{i}" class="avatar">
+                        MedAnalytica Pro
+                    </div>
+                    {chat['answer']}
+                    <div class="timestamp">{chat['timestamp']}</div>
                 </div>
-                {chat['answer']}
-                <div class="timestamp">{chat['timestamp']}</div>
-            </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)  # Close chat-container
 
@@ -514,7 +500,7 @@ st.markdown('</div>', unsafe_allow_html=True)  # Close main-container
 
 # New Chat Modal
 if st.session_state.show_new_chat:
-    st.markdown('<div class="modal-overlay" onclick="window.location.reload()">', unsafe_allow_html=True)
+    st.markdown('<div class="modal-overlay">', unsafe_allow_html=True)
     st.markdown("""
         <div class="new-chat-modal">
             <h3>🆕 Start New Chat</h3>
@@ -534,60 +520,65 @@ if st.session_state.show_new_chat:
     
     st.markdown('</div></div>', unsafe_allow_html=True)
 
-# Enhanced query processing with streaming
+# SIMPLIFIED QUERY PROCESSING - This is the key fix
 if submit_btn and query and query != st.session_state.processed_query:
     if qa_chain is None:
         st.error("❌ Medical assistant not ready. Please ensure documents are properly loaded.")
     else:
-        # Add user message immediately
+        # Add user message to history immediately
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         current_session["history"].append({
             "question": query,
-            "answer": "",
+            "answer": "",  # Start with empty answer
             "timestamp": timestamp
         })
         st.session_state.processed_query = query
         
-        # Process with enhanced medical context
-        with st.spinner("🔍 Analyzing with MedAnalytica Pro..."):
-            try:
-                # Enhanced prompt with medical context
-                enhanced_query = f"""
-                MEDICAL ANALYSIS REQUEST:
-                {query}
-                
-                CONTEXT: Please provide a comprehensive medical analysis including:
-                - Risk assessment based on available data
-                - Anomaly detection and pattern recognition
-                - Root cause analysis if applicable
-                - Evidence-based recommendations
-                - Actionable prevention strategies
-                - Follow-up monitoring suggestions
-                
-                Format response with clear medical sections and use markdown for readability.
-                """
-                
-                response = qa_chain.invoke(enhanced_query)
-                answer = response.get("result", "I couldn't generate a comprehensive medical analysis based on the available documents.")
-                
-                # Update the answer in chat history
-                current_session["history"][-1]["answer"] = answer
-                
-                # Simulate streaming response
-                simulate_streaming_response(answer)
-                
-                # Update session title if it's the first message
-                if len(current_session["history"]) == 1:
-                    # Create a short title from the first query
-                    title_words = query.split()[:4]
-                    current_session["title"] = " ".join(title_words) + ("..." if len(query.split()) > 4 else "")
-                
-            except Exception as e:
-                error_msg = f"❌ Medical analysis error: {str(e)}"
-                current_session["history"][-1]["answer"] = error_msg
-                st.error(error_msg)
+        # Display thinking message
+        thinking_placeholder = st.empty()
+        thinking_placeholder.markdown("""
+            <div class="thinking-message">
+                <div class="message-header">
+                    <img src="https://api.dicebear.com/6.x/bottts/svg?seed=thinking" class="avatar">
+                    MedAnalytica Pro
+                </div>
+                🤔 Analyzing your medical query...
+            </div>
+        """, unsafe_allow_html=True)
         
-        # Rerun to ensure proper display
+        try:
+            # Enhanced medical prompt
+            enhanced_query = f"""
+            MEDICAL ANALYSIS REQUEST: {query}
+            
+            Please provide a comprehensive cardiovascular analysis including:
+            - Risk assessment based on available medical data
+            - Key contributing factors and biomarkers
+            - Evidence-based recommendations
+            - Prevention strategies
+            - Follow-up considerations
+            
+            Format with clear sections using markdown.
+            """
+            
+            # Get the response
+            response = qa_chain.invoke(enhanced_query)
+            answer = response.get("result", "I couldn't generate a comprehensive medical analysis based on the available documents.")
+            
+            # Update the answer in chat history
+            current_session["history"][-1]["answer"] = answer
+            
+            # Update session title if it's the first message
+            if len(current_session["history"]) == 1:
+                title_words = query.split()[:4]
+                current_session["title"] = " ".join(title_words) + ("..." if len(query.split()) > 4 else "")
+            
+        except Exception as e:
+            error_msg = f"❌ Error in medical analysis: {str(e)}"
+            current_session["history"][-1]["answer"] = error_msg
+        
+        # Clear thinking message and rerun to display full conversation
+        thinking_placeholder.empty()
         st.rerun()
 
 # Add padding at the bottom
