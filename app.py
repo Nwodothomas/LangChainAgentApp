@@ -72,48 +72,13 @@ st.markdown("""
             margin-top: 4px;
         }
         .input-bar {
-            display: flex;
-            align-items: center;
-            gap: 10px;
             margin-top: 30px;
-        }
-        .input-box {
-            flex-grow: 1;
-            padding: 0.5rem;
-            border-radius: 5px;
-            border: 1px solid #ccc;
-        }
-        .send-button {
-            background-color: #00aaff;
-            color: white;
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        .send-button:hover {
-            background-color: #008ecc;
         }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
 st.markdown("## 🧠 Cardiovascular Study Assistant")
-
-# Callback function
-def handle_query():
-    query = st.session_state.get("user_input", "")
-    if query:
-        with st.spinner("🤔 Thinking..."):
-            response = qa_chain.invoke(query)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        st.session_state.chat_history.append({
-            "question": query,
-            "answer": response["result"],
-            "timestamp": timestamp
-        })
-        # Clear input using a separate key
-        st.session_state["clear_input"] = True
 
 # Display chat history
 for chat in st.session_state.chat_history:
@@ -138,11 +103,20 @@ for chat in st.session_state.chat_history:
 st.markdown("🎙️ You can use voice input by clicking the mic icon in your browser (if supported).")
 
 # Input bar
-st.text_input("Ask a question...", key="user_input", label_visibility="collapsed", on_change=handle_query)
+st.markdown("<div class='input-bar'>", unsafe_allow_html=True)
+query = st.text_input("Ask a question...", key="query_input", label_visibility="collapsed")
+st.markdown("</div>", unsafe_allow_html=True)
 
-# Reset input field visually (optional workaround)
-if st.session_state.get("clear_input"):
-    st.session_state["user_input"] = ""
-    st.session_state["clear_input"] = False
+# Handle query after input field
+if query:
+    with st.spinner("🤔 Thinking..."):
+        response = qa_chain.invoke(query)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state.chat_history.append({
+        "question": query,
+        "answer": response["result"],
+        "timestamp": timestamp
+    })
+    st.experimental_rerun()  # Refresh to clear input safely
 
 st.markdown("</div>", unsafe_allow_html=True)
