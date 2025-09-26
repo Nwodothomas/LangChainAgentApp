@@ -56,7 +56,10 @@ def create_new_session(session_id, title="New Chat"):
 
 def get_current_session():
     current_id = st.session_state.current_session_id
-    return st.session_state.chat_sessions.get(current_id, create_new_session(current_id))
+    if current_id not in st.session_state.chat_sessions:
+        # Create session if it doesn't exist
+        create_new_session(current_id)
+    return st.session_state.chat_sessions[current_id]
 
 def switch_session(session_id):
     st.session_state.current_session_id = session_id
@@ -83,10 +86,8 @@ with st.sidebar:
     """, unsafe_allow_html=True)
     
     # New Chat Button
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        if st.button("🔄 New Chat", use_container_width=True, key="new_chat_btn"):
-            st.session_state.show_new_chat_modal = True
+    if st.button("🔄 New Chat", use_container_width=True, key="new_chat_btn"):
+        st.session_state.show_new_chat_modal = True
     
     # Chat History
     st.markdown("### 📝 Chat History")
@@ -149,26 +150,61 @@ st.markdown("""
 @st.cache_resource(show_spinner=False)
 def initialize_ai_agent():
     try:
+        # Check if documents exist
+        doc_files = [f for f in os.listdir(docs_path) if f.endswith(('.pdf', '.docx', '.txt'))]
+        
+        if not doc_files:
+            return None, "📁 No medical documents found. Please upload PDF, DOCX, or TXT files in the sidebar."
+        
+        # Initialize vectorstore
         if not os.path.exists(f"{persist_path}/index.faiss"):
-            with st.spinner("🔍 Indexing medical documents..."):
+            with st.spinner("🔍 Indexing medical documents... This may take a few moments."):
                 docs = load_documents(docs_path)
                 if not docs:
-                    return None, "No documents found. Please upload medical documents first."
+                    return None, "❌ No readable content found in documents. Please check your file formats."
                 vectorstore = build_vectorstore(docs, persist_path)
+                st.success("✅ Documents indexed successfully!")
         else:
             vectorstore = load_vectorstore(persist_path)
         
+        # Initialize QA chain
         qa_chain = build_chain(vectorstore)
-        return qa_chain, "✅ Medical AI agent ready!"
+        return qa_chain, "✅ Cardiovascular AI agent ready!"
         
     except Exception as e:
-        return None, f"❌ Error initializing AI agent: {str(e)}"
+        error_msg = str(e)
+        if "api_key" in error_msg.lower() or "openai" in error_msg.lower():
+            return None, "🔑 OpenAI API key required. Please add OPENAI_API_KEY to your .env file."
+        else:
+            return None, f"❌ Error initializing AI agent: {error_msg}"
 
 qa_chain, status_message = initialize_ai_agent()
 
+# Display status
 if not qa_chain:
     st.error(status_message)
-    if "No documents" in status_message:
+    
+    # Helpful setup instructions
+    if "API key" in status_message:
+        with st.expander("🔧 Setup Instructions", expanded=True):
+            st.markdown("""
+            ### Quick Setup Guide:
+            
+            1. **Get OpenAI API Key:**
+               - Visit [OpenAI Platform](https://platform.openai.com/api-keys)
+               - Create account/login → API Keys → Create new secret key
+            
+            2. **Configure .env file:**
+               ```env
+               OPENAI_API_KEY=sk-your_actual_key_here
+               ```
+            
+            3. **Restart the application**
+            
+            **Note:** LangSmith is optional and not required for core functionality.
+            """)
+    
+    if "No documents" in status_message or "readable content" in status_message:
         st.info("💡 Please upload medical documents in the sidebar to get started.")
 
 # Chat interface
@@ -207,7 +243,7 @@ else:
             st.markdown(f"""
                 <div class="user-message">
                     <div class="message-header">
-                        <img src="https://api.dicebear.com/6.x/personas/svg?seed=user{message['timestamp']}" class="avatar">
+                        <img src="https://api.dicebear.com/6.x/personas/svg?seed=user{hash(message['timestamp']) % 1000}" class="avatar">
                         You
                     </div>
                     {message['content']}
@@ -218,7 +254,7 @@ else:
             st.markdown(f"""
                 <div class="assistant-message">
                     <div class="message-header">
-                        <img src="https://api.dicebear.com/6.x/bottts/svg?seed=assistant{message['timestamp']}" class="avatar">
+                        <img src="https://api.dicebear.com/6.x/bottts/svg?seed=assistant{hash(message['timestamp']) % 1000}" class="avatar">
                         MedAnalytica Pro
                     </div>
                     {message['content']}
@@ -304,8 +340,10 @@ if st.session_state.show_new_chat_modal:
     st.markdown('</div></div></div>', unsafe_allow_html=True)
 
 # Handle query processing
-if submit_btn and query and query != st.session_state.last_query and qa_chain:
-    if not validate_medical_query(query):
+if submit_btn and query and query != st.session_state.last_query:
+    if not qa_chain:
+        st.error("❌ AI agent not ready. Please check the status above.")
+    elif not validate_medical_query(query):
         st.warning("⚠️ Please ask a medically relevant question about cardiovascular health.")
     else:
         # Set processing state
@@ -317,7 +355,7 @@ if submit_btn and query and query != st.session_state.last_query and qa_chain:
         
         # Process the query
         try:
-            with st.spinner("Analyzing with medical AI..."):
+            with st.spinner("🤔 Analyzing with medical AI..."):
                 response = qa_chain.invoke(query)
                 answer = response.get("result", "I couldn't generate a response based on the available medical documents.")
                 
