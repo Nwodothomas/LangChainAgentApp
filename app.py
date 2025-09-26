@@ -108,7 +108,7 @@ query = st.text_input("Ask a question...", key="query_input", label_visibility="
 st.markdown("</div>", unsafe_allow_html=True)
 
 # Handle query after input field
-if query:
+if query and "last_query" not in st.session_state:
     with st.spinner("🤔 Thinking..."):
         response = qa_chain.invoke(query)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -117,6 +117,10 @@ if query:
         "answer": response["result"],
         "timestamp": timestamp
     })
-    st.experimental_rerun()  # Refresh to clear input safely
+    st.session_state.last_query = query  # Prevent reprocessing on rerun
+
+# Reset last_query to allow new input
+if "last_query" in st.session_state and st.session_state.query_input != st.session_state.last_query:
+    del st.session_state.last_query
 
 st.markdown("</div>", unsafe_allow_html=True)
