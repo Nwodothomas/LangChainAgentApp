@@ -44,17 +44,39 @@ st.markdown("""
             color: gray;
             margin-top: 4px;
         }
+        .input-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .input-box {
+            flex-grow: 1;
+            padding: 0.5rem;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        .send-button {
+            background-color: #00aaff;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .send-button:hover {
+            background-color: #008ecc;
+        }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
 st.markdown("## 🧠 Cardiovascular Study Assistant")
 
-# File upload
-uploaded_files = st.file_uploader("📄 Upload new study documents", type=["pdf", "docx", "txt"], accept_multiple_files=True)
+# File upload section
 docs_path = "data/docs"
 persist_path = "vectorstore"
-
+uploaded_files = st.file_uploader("📄 Upload new study documents", type=["pdf", "docx", "txt"], accept_multiple_files=True)
 if uploaded_files:
     for file in uploaded_files:
         file_path = os.path.join(docs_path, file.name)
@@ -76,18 +98,19 @@ qa_chain = build_chain(vectorstore)
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# Input field with callback
+# Handle query
 def handle_query():
     query = st.session_state.user_input
     if query:
-        response = qa_chain.invoke(query)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        st.session_state.chat_history.append({
-            "question": query,
-            "answer": response["result"],
-            "timestamp": timestamp
-        })
-        st.session_state.user_input = ""  # Clear input
+        with st.spinner("🤔 Thinking..."):
+            response = qa_chain.invoke(query)
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            st.session_state.chat_history.append({
+                "question": query,
+                "answer": response["result"],
+                "timestamp": timestamp
+            })
+            st.session_state.user_input = ""  # Clear input
 
 # Display chat history
 for chat in st.session_state.chat_history:
@@ -111,7 +134,9 @@ for chat in st.session_state.chat_history:
 # Voice input note
 st.markdown("🎙️ You can use voice input by clicking the mic icon in your browser (if supported).")
 
-# Input field
-st.text_input("Ask a question about the study:", key="user_input", on_change=handle_query)
+# Input bar
+st.markdown("<div class='input-bar'>", unsafe_allow_html=True)
+st.text_input("Ask a question...", key="user_input", label_visibility="collapsed", on_change=handle_query)
+st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("</div>", unsafe_allow_html=True)
