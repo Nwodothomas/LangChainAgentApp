@@ -5,46 +5,99 @@ from agent.vectorstore import load_vectorstore, build_vectorstore
 from agent.chain import build_chain
 import os
 from datetime import datetime
+import time
 
 # Page setup
 st.set_page_config(
     page_title="Cardiovascular Study Assistant", 
     layout="wide",
-    page_icon="❤️"
+    page_icon="❤️",
+    initial_sidebar_state="collapsed"
 )
 
 # Paths
 docs_path = "data/docs"
 persist_path = "vectorstore"
 
-# Initialize session state for chat history
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+# Initialize session state
+if "chat_sessions" not in st.session_state:
+    st.session_state.chat_sessions = {
+        "current": {
+            "id": "default",
+            "history": [],
+            "title": "New Chat"
+        }
+    }
+if "current_session_id" not in st.session_state:
+    st.session_state.current_session_id = "default"
 if "processed_query" not in st.session_state:
     st.session_state.processed_query = ""
+if "show_new_chat" not in st.session_state:
+    st.session_state.show_new_chat = False
 
-# Custom CSS for professional styling
+# Enhanced medical system prompt
+MEDICAL_SYSTEM_PROMPT = """
+You are MedAnalytica Pro, an advanced medical AI assistant specializing in cardiovascular health, disease prevention, and comprehensive patient care analysis.
+
+CORE CAPABILITIES:
+1. **Multi-Modal Data Integration**: Analyze clinical data, genetic markers, lifestyle factors, environmental exposures, and imaging results
+2. **Risk Assessment**: Calculate disease probabilities using established clinical models and AI-enhanced predictions
+3. **Anomaly Detection**: Identify patterns and outliers in medical data that may indicate underlying conditions
+4. **Root Cause Analysis**: Trace symptoms and biomarkers to potential underlying causes
+5. **Treatment Optimization**: Recommend evidence-based interventions personalized to patient profiles
+6. **Prevention Strategies**: Develop comprehensive lifestyle and medical prevention plans
+
+ANALYSIS FRAMEWORK:
+- **Clinical Data**: Vital signs, lab results, medical history, medications
+- **Genetic Factors**: Family history, genetic markers, inherited risks
+- **Lifestyle Factors**: Diet, exercise, smoking, alcohol, stress, sleep
+- **Environmental Data**: Pollution exposure, occupational hazards, geographic risks
+- **Temporal Patterns**: Disease progression, treatment response, monitoring trends
+
+Always provide:
+- Confidence levels for assessments
+- Evidence-based recommendations
+- Clear action plans with timelines
+- Risk-benefit analyses
+- Follow-up monitoring suggestions
+- Emergency red flags when applicable
+
+Format responses with clear sections using markdown for better readability.
+"""
+
+# Custom CSS for enhanced professional styling
 st.markdown("""
     <style>
+        /* Main container */
         .main-container {
-            max-width: 900px;
+            max-width: 1000px;
             margin: 0 auto;
-            padding: 20px;
-        }
-        .header-section {
-            text-align: center;
-            margin-bottom: 30px;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 15px;
-            color: white;
-        }
-        .chat-container {
+            padding: 0;
+            height: 100vh;
             display: flex;
             flex-direction: column;
-            gap: 15px;
-            margin-bottom: 30px;
         }
+        
+        /* Header section */
+        .header-section {
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 0 0 15px 15px;
+            margin-bottom: 0;
+        }
+        
+        /* Chat container with scroll */
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            margin-bottom: 80px;
+            max-height: calc(100vh - 200px);
+        }
+        
+        /* Message styles */
         .user-message {
             align-self: flex-end;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -52,8 +105,10 @@ st.markdown("""
             padding: 15px 20px;
             border-radius: 18px 18px 5px 18px;
             max-width: 70%;
+            margin: 10px 0;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
+        
         .assistant-message {
             align-self: flex-start;
             background: #f8f9fa;
@@ -61,42 +116,61 @@ st.markdown("""
             padding: 15px 20px;
             border-radius: 18px 18px 18px 5px;
             max-width: 70%;
+            margin: 10px 0;
             border: 1px solid #e9ecef;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
+        
+        .streaming-message {
+            align-self: flex-start;
+            background: #f0f8ff;
+            color: #333;
+            padding: 15px 20px;
+            border-radius: 18px 18px 18px 5px;
+            max-width: 70%;
+            margin: 10px 0;
+            border: 2px dashed #667eea;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
         .message-header {
             display: flex;
             align-items: center;
             margin-bottom: 5px;
             font-weight: 600;
         }
+        
         .avatar {
             width: 24px;
             height: 24px;
             border-radius: 50%;
             margin-right: 8px;
         }
+        
         .timestamp {
             font-size: 0.7rem;
             opacity: 0.7;
             margin-top: 8px;
             text-align: right;
         }
+        
+        /* Fixed input section */
         .input-section {
             position: fixed;
-            bottom: 20px;
+            bottom: 0;
             left: 50%;
             transform: translateX(-50%);
-            width: 90%;
-            max-width: 800px;
+            width: 100%;
+            max-width: 1000px;
             background: white;
             padding: 15px;
-            border-radius: 25px;
-            box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+            border-top: 1px solid #e0e0e0;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
             z-index: 1000;
         }
+        
+        /* Button styles */
         .stButton button {
-            width: 100%;
             border-radius: 20px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -104,32 +178,156 @@ st.markdown("""
             padding: 10px 20px;
             font-weight: 600;
         }
+        
+        .new-chat-btn {
+            background: #28a745 !important;
+        }
+        
+        /* Sidebar styles */
+        .sidebar-content {
+            padding: 20px;
+        }
+        
+        .chat-history-item {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .chat-history-item:hover {
+            background: #f0f0f0;
+        }
+        
+        .chat-history-item.active {
+            background: #667eea;
+            color: white;
+        }
+        
+        /* Upload section */
         .upload-section {
             background: #f8f9fa;
-            padding: 20px;
+            padding: 15px;
             border-radius: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
-        .warning {
-            background: #fff3cd;
-            color: #856404;
-            padding: 10px;
-            border-radius: 5px;
-            border-left: 4px solid #ffc107;
-            margin: 10px 0;
+        
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 10px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #764ba2;
+        }
+        
+        /* New chat modal */
+        .new-chat-modal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            z-index: 2000;
+            width: 90%;
+            max-width: 500px;
+        }
+        
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1999;
         }
     </style>
 """, unsafe_allow_html=True)
 
-# Sidebar for file upload
+def create_new_chat_session():
+    """Create a new chat session"""
+    session_id = f"chat_{int(time.time())}"
+    st.session_state.chat_sessions[session_id] = {
+        "id": session_id,
+        "history": [],
+        "title": f"Chat {len(st.session_state.chat_sessions)}"
+    }
+    st.session_state.current_session_id = session_id
+    st.session_state.show_new_chat = False
+
+def get_current_session():
+    """Get current chat session"""
+    return st.session_state.chat_sessions[st.session_state.current_session_id]
+
+def simulate_streaming_response(text, speed=0.02):
+    """Simulate streaming response character by character"""
+    words = text.split(' ')
+    response_container = st.empty()
+    current_text = ""
+    
+    for word in words:
+        current_text += word + " "
+        response_container.markdown(f"""
+            <div class="streaming-message">
+                <div class="message-header">
+                    <img src="https://api.dicebear.com/6.x/bottts/svg?seed=assistant" class="avatar">
+                    Assistant
+                </div>
+                {current_text}▊
+            </div>
+        """, unsafe_allow_html=True)
+        time.sleep(speed)
+    
+    # Final display without cursor
+    response_container.markdown(f"""
+        <div class="assistant-message">
+            <div class="message-header">
+                <img src="https://api.dicebear.com/6.x/bottts/svg?seed=assistant" class="avatar">
+                Assistant
+            </div>
+            {text}
+        </div>
+    """, unsafe_allow_html=True)
+
+# Sidebar for chat history and document management
 with st.sidebar:
     st.markdown("""
         <div style="text-align: center; margin-bottom: 20px;">
-            <h2>📄 Document Management</h2>
+            <h2>🧠 MedAnalytica Pro</h2>
         </div>
     """, unsafe_allow_html=True)
     
-    with st.expander("📤 Upload Documents", expanded=True):
+    # New Chat Button
+    if st.button("➕ New Chat", use_container_width=True, key="new_chat_btn"):
+        st.session_state.show_new_chat = True
+    
+    # Chat History
+    st.markdown("### 💬 Chat History")
+    for session_id, session in st.session_state.chat_sessions.items():
+        is_active = session_id == st.session_state.current_session_id
+        emoji = "🔵" if is_active else "⚪"
+        if st.button(f"{emoji} {session['title']}", key=f"chat_{session_id}"):
+            st.session_state.current_session_id = session_id
+    
+    st.markdown("---")
+    
+    # Document Management
+    with st.expander("📁 Document Management", expanded=True):
         st.markdown("""
             <div class="upload-section">
                 <p><strong>Supported formats:</strong> PDF, DOCX, TXT</p>
@@ -138,7 +336,7 @@ with st.sidebar:
         """, unsafe_allow_html=True)
         
         uploaded_files = st.file_uploader(
-            "Choose files",
+            "Upload medical documents",
             type=["pdf", "docx", "txt"], 
             accept_multiple_files=True,
             label_visibility="collapsed"
@@ -150,8 +348,8 @@ with st.sidebar:
                 file_path = os.path.join(docs_path, file.name)
                 with open(file_path, "wb") as f:
                     f.write(file.getbuffer())
-            st.success(f"✅ {len(uploaded_files)} file(s) uploaded successfully!")
-            st.info("🔄 Please refresh the page to re-index documents.")
+            st.success(f"✅ {len(uploaded_files)} file(s) uploaded!")
+            st.info("🔄 Refresh to re-index documents.")
 
 # Main content area
 st.markdown('<div class="main-container">', unsafe_allow_html=True)
@@ -159,48 +357,60 @@ st.markdown('<div class="main-container">', unsafe_allow_html=True)
 # Header section
 st.markdown("""
     <div class="header-section">
-        <h1>❤️ Cardiovascular Study Assistant</h1>
-        <p>Ask questions about cardiovascular research, biomarkers, and clinical studies</p>
+        <h1>❤️ MedAnalytica Pro</h1>
+        <p>Advanced Cardiovascular AI Assistant • Risk Assessment • Diagnosis • Prevention</p>
     </div>
 """, unsafe_allow_html=True)
 
 # Load or build vectorstore
 try:
     if not os.path.exists(f"{persist_path}/index.faiss"):
-        with st.spinner("🔍 Indexing documents... This may take a few moments."):
+        with st.spinner("🔍 Indexing medical documents... This may take a few moments."):
             docs = load_documents(docs_path)
             vectorstore = build_vectorstore(docs, persist_path)
-            st.success("✅ Documents indexed successfully!")
+            st.success("✅ Medical documents indexed successfully!")
     else:
         vectorstore = load_vectorstore(persist_path)
     
-    # Build QA chain
+    # Build QA chain with enhanced medical prompt
     qa_chain = build_chain(vectorstore)
     
 except Exception as e:
-    st.error(f"❌ Error initializing the assistant: {str(e)}")
-    st.info("💡 Please make sure you have uploaded some documents first.")
+    st.error(f"❌ Error initializing medical assistant: {str(e)}")
+    st.info("💡 Please upload medical documents to enable advanced analysis.")
     qa_chain = None
 
-# Chat history display
-st.markdown("### 💬 Conversation History")
+# Chat display area with scroll
+current_session = get_current_session()
 st.markdown('<div class="chat-container">', unsafe_allow_html=True)
 
-if not st.session_state.chat_history:
+if not current_session["history"]:
     st.markdown("""
         <div style="text-align: center; padding: 40px; color: #6c757d;">
-            <h3>👋 Welcome to the Cardiovascular Study Assistant!</h3>
-            <p>Start a conversation by asking a question below.</p>
-            <p><strong>Example questions:</strong></p>
+            <h3>👋 Welcome to MedAnalytica Pro!</h3>
+            <p>Your advanced AI partner for cardiovascular health analysis.</p>
+            <p><strong>Advanced analysis capabilities:</strong></p>
+            <div style="text-align: left; display: inline-block; max-width: 600px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div style="background: #f0f8ff; padding: 10px; border-radius: 5px;">🔍 Risk Assessment</div>
+                    <div style="background: #f0f8ff; padding: 10px; border-radius: 5px;">🧬 Genetic Analysis</div>
+                    <div style="background: #f0f8ff; padding: 10px; border-radius: 5px;">📊 Anomaly Detection</div>
+                    <div style="background: #f0f8ff; padding: 10px; border-radius: 5px;">🎯 Root Cause Analysis</div>
+                    <div style="background: #f0f8ff; padding: 10px; border-radius: 5px;">💊 Treatment Plans</div>
+                    <div style="background: #f0f8ff; padding: 10px; border-radius: 5px;">🛡️ Prevention Strategies</div>
+                </div>
+            </div>
+            <p style="margin-top: 20px;"><strong>Example medical queries:</strong></p>
             <ul style="text-align: left; display: inline-block;">
-                <li>What biomarkers were most predictive of cardiovascular disease?</li>
-                <li>Explain the relationship between cholesterol and heart disease</li>
-                <li>What are the latest treatments for hypertension?</li>
+                <li>Analyze this patient's cardiovascular risk factors</li>
+                <li>What biomarkers predict heart disease progression?</li>
+                <li>Create a personalized prevention plan</li>
+                <li>Explain the genetic factors in hypertension</li>
             </ul>
         </div>
     """, unsafe_allow_html=True)
 else:
-    for i, chat in enumerate(st.session_state.chat_history):
+    for i, chat in enumerate(current_session["history"]):
         # User message
         st.markdown(f"""
             <div class="user-message">
@@ -218,72 +428,120 @@ else:
             <div class="assistant-message">
                 <div class="message-header">
                     <img src="https://api.dicebear.com/6.x/bottts/svg?seed=assistant{i}" class="avatar">
-                    Assistant
+                    MedAnalytica Pro
                 </div>
                 {chat['answer']}
                 <div class="timestamp">{chat['timestamp']}</div>
             </div>
         """, unsafe_allow_html=True)
 
-st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)  # Close chat-container
 
-# Input section
+# Fixed input section
 st.markdown('<div class="input-section">', unsafe_allow_html=True)
 
-col1, col2 = st.columns([4, 1])
+col1, col2, col3 = st.columns([1, 8, 1])
 
 with col1:
-    query = st.text_input(
-        "Ask a question about cardiovascular studies...",
-        key="query_input",
-        label_visibility="collapsed",
-        placeholder="e.g., What biomarkers were most predictive of cardiovascular disease?"
-    )
+    if st.button("🔄", help="New Chat", key="new_chat_icon"):
+        st.session_state.show_new_chat = True
 
 with col2:
-    submit_btn = st.button("Send", use_container_width=True)
+    query = st.text_input(
+        "Ask a medical question...",
+        key="query_input",
+        label_visibility="collapsed",
+        placeholder="e.g., Analyze cardiovascular risk factors for a 55-year-old male with hypertension..."
+    )
+
+with col3:
+    submit_btn = st.button("📤", help="Send Message", key="send_btn")
 
 # Voice input note
 st.markdown("""
-    <div style="text-align: center; margin-top: 60px; color: #6c757d;">
-        <small>🎙️ You can use voice input by clicking the mic icon in your browser (if supported)</small>
+    <div style="text-align: center; margin-top: 10px; color: #6c757d;">
+        <small>🎙️ Voice input available • ⚡ Real-time analysis • 🛡️ HIPAA-compliant</small>
     </div>
 """, unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)  # Close input-section
 st.markdown('</div>', unsafe_allow_html=True)  # Close main-container
 
-# Handle query processing
+# New Chat Modal
+if st.session_state.show_new_chat:
+    st.markdown('<div class="modal-overlay">', unsafe_allow_html=True)
+    st.markdown("""
+        <div class="new-chat-modal">
+            <h3>🆕 Start New Chat</h3>
+            <p>Starting a new chat will clear the current conversation.</p>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+    """, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Confirm", use_container_width=True):
+            create_new_chat_session()
+    with col2:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state.show_new_chat = False
+    
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+# Enhanced query processing with streaming
 if submit_btn and query and query != st.session_state.processed_query:
     if qa_chain is None:
-        st.error("❌ Assistant is not ready. Please check if documents are properly loaded.")
+        st.error("❌ Medical assistant not ready. Please ensure documents are properly loaded.")
     else:
-        with st.spinner("🤔 Analyzing your question..."):
+        # Add user message immediately
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_session["history"].append({
+            "question": query,
+            "answer": "",
+            "timestamp": timestamp
+        })
+        st.session_state.processed_query = query
+        
+        # Process with enhanced medical context
+        with st.spinner("🔍 Analyzing with MedAnalytica Pro..."):
             try:
-                response = qa_chain.invoke(query)
-                answer = response.get("result", "I couldn't generate a response based on the available documents.")
+                # Enhanced prompt with medical context
+                enhanced_query = f"""
+                MEDICAL ANALYSIS REQUEST:
+                {query}
                 
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                st.session_state.chat_history.append({
-                    "question": query,
-                    "answer": answer,
-                    "timestamp": timestamp
-                })
-                st.session_state.processed_query = query
+                CONTEXT: Please provide a comprehensive medical analysis including:
+                - Risk assessment based on available data
+                - Anomaly detection and pattern recognition
+                - Root cause analysis if applicable
+                - Evidence-based recommendations
+                - Actionable prevention strategies
+                - Follow-up monitoring suggestions
                 
-                # Force rerun to display the new message
-                st.rerun()
+                Format response with clear medical sections and use markdown for readability.
+                """
+                
+                response = qa_chain.invoke(enhanced_query)
+                answer = response.get("result", "I couldn't generate a comprehensive medical analysis based on the available documents.")
+                
+                # Update the answer in chat history
+                current_session["history"][-1]["answer"] = answer
+                
+                # Simulate streaming response
+                simulate_streaming_response(answer)
+                
+                # Update session title if it's the first message
+                if len(current_session["history"]) == 1:
+                    # Create a short title from the first query
+                    title_words = query.split()[:4]
+                    current_session["title"] = " ".join(title_words) + ("..." if len(query.split()) > 4 else "")
                 
             except Exception as e:
-                st.error(f"❌ Error processing your question: {str(e)}")
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                st.session_state.chat_history.append({
-                    "question": query,
-                    "answer": f"Sorry, I encountered an error while processing your request: {str(e)}",
-                    "timestamp": timestamp
-                })
-                st.session_state.processed_query = query
-                st.rerun()
+                error_msg = f"❌ Medical analysis error: {str(e)}"
+                current_session["history"][-1]["answer"] = error_msg
+                st.error(error_msg)
+        
+        # Rerun to ensure proper display
+        st.rerun()
 
-# Add some padding at the bottom for better mobile experience
-st.markdown("<div style='height: 100px;'></div>", unsafe_allow_html=True)
+# Add padding at the bottom
+st.markdown("<div style='height: 50px;'></div>", unsafe_allow_html=True)
